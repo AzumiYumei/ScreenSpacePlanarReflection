@@ -146,13 +146,13 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
         {
             // DebugTool.Log("SSPR Pass SetupSSPR");
             // 分配RTHandle
-            m_RenderTextureDescriptor = new RenderTextureDescriptor(GroupThreadX * GroupX, GroupThreadY * GroupY, RenderTextureFormat.BGRA32, 0, 0);
+            m_RenderTextureDescriptor = new RenderTextureDescriptor(GroupThreadX * GroupX, GroupThreadY * GroupY, RenderTextureFormat.ARGB32, 0, 0);
             m_RenderTextureDescriptor.enableRandomWrite = true; // 开启UAV随机读写
             RenderingUtils.ReAllocateIfNeeded(ref m_SSPRReflectionTexture, m_RenderTextureDescriptor, FilterMode.Bilinear, TextureWrapMode.Clamp, name: m_SSPRReflectionTextureName);
 
             // 只要r channel
-            m_RenderTextureDescriptor.colorFormat = RenderTextureFormat.RFloat;
-            RenderingUtils.ReAllocateIfNeeded(ref m_SSPRHeightTexture, m_RenderTextureDescriptor, FilterMode.Bilinear, TextureWrapMode.Clamp, name: m_SSPRHeightTextureName);
+            m_RenderTextureDescriptor.colorFormat = RenderTextureFormat.RInt;
+            RenderingUtils.ReAllocateIfNeeded(ref m_SSPRHeightTexture, m_RenderTextureDescriptor, FilterMode.Point, TextureWrapMode.Clamp, name: m_SSPRHeightTextureName);
 
             // 设置ComputeShader属性
             m_SSPRKernelID = m_ComputeShader.FindKernel(m_SSPRKernelName);
@@ -170,7 +170,13 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
 
             m_FillHoleKernelID = m_ComputeShader.FindKernel(m_FillHoleKernelName);
             m_ComputeShader.SetTexture(m_FillHoleKernelID, m_SSPRReflectionTextureID, m_SSPRReflectionTexture);
+            m_ComputeShader.SetTexture(m_FillHoleKernelID, m_SSPRHeightBufferID, m_SSPRHeightTexture);
 
+            // 单独清理，避免反射写入与其他线程的清理操作互相覆盖。
+            int clearKernelID = m_ComputeShader.FindKernel("Clear");
+            m_ComputeShader.SetTexture(clearKernelID, m_SSPRReflectionTextureID, m_SSPRReflectionTexture);
+            m_ComputeShader.SetTexture(clearKernelID, m_SSPRHeightBufferID, m_SSPRHeightTexture);
+            cmd.DispatchCompute(m_ComputeShader, clearKernelID, GroupX, GroupY, 1);
 
             //开始计算
             cmd.DispatchCompute(m_ComputeShader, m_SSPRKernelID, GroupX, GroupY, 1);
@@ -189,6 +195,10 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
 
             //开始模糊
             m_BlurMaterial.SetFloat(m_BlurRadiusID, m_SSPRSettings.m_BlurRadius);
+            m_BlurMaterial.SetFloat("_BlurHeightScale", m_SSPRSettings.m_BlurHeightScale);
+            // 两次模糊共用原始高度图，避免高度随颜色一起被模糊。
+            m_BlurMaterial.SetTexture(m_SSPRHeightBufferID, m_SSPRHeightTexture.rt);
+            m_BlurMaterial.SetFloat(m_ReflectPlaneHeightID, m_SSPRSettings.ReflectHeight);
 
             RenderTextureDescriptor desc = new RenderTextureDescriptor(GroupThreadX * GroupX, GroupThreadY * GroupY, RenderTextureFormat.BGRA32, 0, 0);
 

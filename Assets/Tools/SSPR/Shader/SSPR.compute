@@ -49,13 +49,16 @@ float SdfCube(float2 pos) {
     return min(dis.x, dis.y);
 }
 
+#pragma kernel Clear
+[numthreads(8,8,1)]
+void Clear(uint3 id : SV_DispatchThreadID) {
+    _SSPRReflectionTexture[id.xy] = half4(0.0, 0.0, 0.0, 0.0);
+    _SSPRHeightBuffer[id.xy] = INT_MAX;
+}
+
 #pragma kernel SSPR
 [numthreads(8,8,1)]
 void SSPR(uint3 id : SV_DispatchThreadID) {
-    _SSPRReflectionTexture[id.xy] = half4(0.0, 0.0, 0.0, 0.0);
-    _SSPRHeightBuffer[id.xy] = INT_MAX;
-    // _SSPRHeightBuffer[id.xy] = HALF_MAX;
-
     // 计算屏幕uv DispatchThreadID：当前线程组在所有线程组里的ID，即图像pos
     float2 uv = id.xy * _SSPRReflectionSize.zw;
 
@@ -65,6 +68,7 @@ void SSPR(uint3 id : SV_DispatchThreadID) {
 
     // 根据深度还原世界坐标
     float3 wpos = ComputeWorldSpacePosition(uv, depth, UNITY_MATRIX_I_VP);
+    wpos = clamp(wpos, -1e6,1e6);
     // 舍去那些在平面下方的像素
     if (wpos.y < _ReflectPlaneHeight) return;
 
@@ -89,10 +93,9 @@ void SSPR(uint3 id : SV_DispatchThreadID) {
     float2 ridx = ruv * _SSPRReflectionSize.xy;
 
 
-
     //转化成int类型，给原子操作提供条件
-    //保留两位小数点
-    int wposY = int(wpos.y * 100);
+    //保留六位小数点
+    int wposY = int(wpos.y * 1e6);
 
     // 使用整数的原子最小操作
     InterlockedMin(_SSPRHeightBuffer[ridx], wposY);
@@ -103,11 +106,12 @@ void SSPR(uint3 id : SV_DispatchThreadID) {
 
     //解决边缘信息缺失的问题，对边缘像素进行一定程度的渐出
     float mask = SdfCube(uv * 2.0 - 1.0);
-    mask = clamp(smoothstep(0, _EdgeFadeOutMaxValue, abs(mask)), 0.0, 1.0) * saturate(_WorldPosFadeOutHeight / (wpos.y + 0.01));
+    mask = clamp(smoothstep(0, _EdgeFadeOutMaxValue, abs(mask)), 0.0, 1.0) * saturate(_WorldPosFadeOutHeight / max(wpos.y , 0.01));
 
     //如果当前像素深度更靠前，则更新现在的像素颜色
-    // _SSPRHeightBuffer[ridx] = wpos.y;
-    _SSPRReflectionTexture[ridx] = _CameraColorTexture.SampleLevel(sampler_CameraColorTexture, uv, 0) * mask;
+    // 保留原子操作写入的放大整数，供 Blur 还原世界空间高度。
+    float4 col = _CameraColorTexture.SampleLevel(sampler_CameraColorTexture, uv, 0);
+    _SSPRReflectionTexture[ridx] = col * mask;
 }
 
 #pragma kernel FillHole
@@ -124,9 +128,20 @@ void FillHole(uint3 id : SV_DispatchThreadID) {
 
     // find best inside 2*2
     half4 best = center;
+    uint2 bestOffset = uint2(0, 0);
+    bestOffset = right.a > best.a + 0.5 ? uint2(0, 1) : bestOffset;
     best = right.a > best.a + 0.5 ? right : best;
+    bestOffset = bottom.a > best.a + 0.5 ? uint2(1, 0) : bestOffset;
     best = bottom.a > best.a + 0.5 ? bottom : best;
+    bestOffset = bottomRight.a > best.a + 0.5 ? uint2(1, 1) : bestOffset;
     best = bottomRight.a > best.a + 0.5 ? bottomRight : best;
+
+    // 补入颜色时同步其高度，让补洞像素使用相同的模糊半径。
+    int bestHeight = _SSPRHeightBuffer[id.xy + bestOffset];
+    if (best.a > center.a + 0.5) _SSPRHeightBuffer[id.xy] = bestHeight;
+    if (best.a > right.a + 0.5) _SSPRHeightBuffer[id.xy + uint2(0, 1)] = bestHeight;
+    if (best.a > bottom.a + 0.5) _SSPRHeightBuffer[id.xy + uint2(1, 0)] = bestHeight;
+    if (best.a > bottomRight.a + 0.5) _SSPRHeightBuffer[id.xy + uint2(1, 1)] = bestHeight;
 
     // write better rgba
     _SSPRReflectionTexture[id.xy + uint2(0, 0)] = best.a > center.a + 0.5 ? best : center;

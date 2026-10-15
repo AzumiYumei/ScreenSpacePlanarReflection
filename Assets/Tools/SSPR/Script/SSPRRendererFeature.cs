@@ -51,6 +51,9 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
         [SerializeField]
         [Tooltip("模糊半径")]
         internal float m_BlurRadius = 1;
+        [SerializeField, Min(0.0f)]
+        [Tooltip("高度模糊强度，物体越高模糊越明显；设为0时使用固定半径")]
+        internal float m_BlurHeightScale = 1.0f;
         [SerializeField]
         [Tooltip("SSPR使用的ComputeShader")]
         internal ComputeShader m_ComputeShader;

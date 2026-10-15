@@ -7,14 +7,30 @@ Shader "AZUMI/RenderFeature/SSPR/GaussianBlur99"
     #include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/Blit.hlsl"
 
     float _BlurRadius;
+    float _BlurHeightScale;
+    float _ReflectPlaneHeight;
+    Texture2D<int> _SSPRHeightBuffer;
 
     float4 _BlitTexture_TexelSize;
+
+    float GetBlurRadius(float2 uv)
+    {
+        uint width, height;
+        _SSPRHeightBuffer.GetDimensions(width, height);
+        uint2 pixel = min((uint2)(saturate(uv) * float2(width, height)), uint2(width, height) - 1);
+        int heightValue = _SSPRHeightBuffer.Load(int3(pixel, 0));
+        if (heightValue == 2147483647) return _BlurRadius;
+
+        // 还原放大一百万倍的世界空间高度，物体离反射平面越高，半径越大。
+        float heightAbovePlane = max(0.0, heightValue * 1e-6 - _ReflectPlaneHeight);
+        return _BlurRadius * (1.0 + heightAbovePlane * max(0.0, _BlurHeightScale));
+    }
 
     float4 BlurVertical(Varyings input) : SV_Target
     {
         UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
-        float texelSize = _BlurRadius * _BlitTexture_TexelSize.x;
         float2 uv = UnityStereoTransformScreenSpaceTex(input.texcoord);
+        float texelSize = GetBlurRadius(uv) * _BlitTexture_TexelSize.x;
 
         // 9 - tap gaussian blur on the downsampled source
         float4 c0 = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, uv - float2(texelSize * 4.0, 0.0));
@@ -36,8 +52,8 @@ Shader "AZUMI/RenderFeature/SSPR/GaussianBlur99"
     float4 BlurHorizontal(Varyings input) : SV_Target
     {
         UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
-        float texelSize = _BlurRadius * _BlitTexture_TexelSize.y;
         float2 uv = UnityStereoTransformScreenSpaceTex(input.texcoord);
+        float texelSize = GetBlurRadius(uv) * _BlitTexture_TexelSize.y;
 
         // 9 - tap gaussian blur on the downsampled source
         float4 c0 = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, uv - float2(0.0, texelSize * 4.0));
@@ -70,6 +86,7 @@ Shader "AZUMI/RenderFeature/SSPR/GaussianBlur99"
             Name "BlurPassVertical"
 
             HLSLPROGRAM
+            #pragma target 4.5
             #pragma vertex Vert
             #pragma fragment BlurVertical
             ENDHLSL
@@ -80,6 +97,7 @@ Shader "AZUMI/RenderFeature/SSPR/GaussianBlur99"
             Name "BlurPassHorizontal"
 
             HLSLPROGRAM
+            #pragma target 4.5
             #pragma vertex Vert
             #pragma fragment BlurHorizontal
             ENDHLSL

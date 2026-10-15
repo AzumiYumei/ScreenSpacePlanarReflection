@@ -83,12 +83,13 @@ MonoBehaviour:
   m_SSPRSettings:
     evt: 500
     RTSize: 1024
-    ReflectHeight: 0.2
-    m_EdgeFadeOutMaxValue: 0.6
-    m_WorldPosFadeOutHeight: 0.62
+    ReflectHeight: 0.02
+    m_EdgeFadeOutMaxValue: 0.3
+    m_WorldPosFadeOutHeight: 0.6
     m_StretchThreshold: 1
     m_StretchIntensity: 1
-    m_Iteration: 1
-    m_BlurRadius: 1
+    m_Iteration: 2
+    m_BlurRadius: 0.5
+    m_BlurHeightScale: 5
     m_ComputeShader: {fileID: 7200000, guid: a87095823e413474eb97cd9af4409721, type: 3}
     m_SSPRShader: {fileID: 4800000, guid: bb4c90aed89b0184081c63a6ae0ffa37, type: 3}
