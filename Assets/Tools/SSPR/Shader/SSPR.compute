@@ -1,0 +1,136 @@
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+
+
+RWTexture2D<half4> _SSPRReflectionTexture;
+RWTexture2D<int>  _SSPRHeightBuffer;
+// RWTexture2D<half>  _SSPRHeightBuffer;
+
+Texture2D<float4> _CameraColorTexture;
+Texture2D<float4> _CameraDepthTexture;
+
+SAMPLER(sampler_CameraDepthTexture);
+SAMPLER(sampler_CameraColorTexture);
+
+float4 _SSPRReflectionSize;
+float _ReflectPlaneHeight;
+float _EdgeFadeOutMaxValue;
+
+float3 _CameraDirection;
+float _Threshold;
+float _Intensity;
+
+float _WorldPosFadeOutHeight;
+
+//计算像素到边缘的距离
+float SdfCube(float2 pos) {
+    ///原理：
+    /// 1. 获取距离边缘xy的距离
+    /// 2. 返回最近距离
+    // float x = pos.x;
+    // float y = pos.y;
+    // float edgeLeft = -1.0;
+    // float edgeRight = 1.0;
+    // float edgeTop = 1.0;
+    // float edgeButton = -1.0;
+
+    // float disLeft =     abs(edgeLeft - x    );
+    // float disRight =    abs(edgeRight - x   );
+    // float disTop =      abs(edgeTop - y     );
+    // float disBottom =   abs(edgeButton - y  );
+
+    // float minDisH = min(disLeft, disRight);
+    // float minDisV = min(edgeTop, edgeButton);
+
+    // return min(minDisH, minDisV);
+
+    //获取距离边缘xy的距离
+    float2 dis = float2(1, 1) - abs(pos);
+    //返回最近距离
+    return min(dis.x, dis.y);
+}
+
+#pragma kernel SSPR
+[numthreads(8,8,1)]
+void SSPR(uint3 id : SV_DispatchThreadID) {
+    _SSPRReflectionTexture[id.xy] = half4(0.0, 0.0, 0.0, 0.0);
+    _SSPRHeightBuffer[id.xy] = INT_MAX;
+    // _SSPRHeightBuffer[id.xy] = HALF_MAX;
+
+    // 计算屏幕uv DispatchThreadID：当前线程组在所有线程组里的ID，即图像pos
+    float2 uv = id.xy * _SSPRReflectionSize.zw;
+
+    float depth = _CameraDepthTexture.SampleLevel(sampler_CameraDepthTexture, uv, 0).r;
+    float linearDepth = Linear01Depth(depth, _ZBufferParams);
+    if(linearDepth > 0.90) return;
+
+    // 根据深度还原世界坐标
+    float3 wpos = ComputeWorldSpacePosition(uv, depth, UNITY_MATRIX_I_VP);
+    // 舍去那些在平面下方的像素
+    if (wpos.y < _ReflectPlaneHeight) return;
+
+    // 计算反射后的世界坐标
+    float3 rwpos = wpos;
+    rwpos.y = - rwpos.y + 2 * _ReflectPlaneHeight;
+
+    // 计算反射后的uv
+    float4 rcpos = TransformWorldToHClip(rwpos);
+    float2 ruv = float2(rcpos.x, rcpos.y * _ProjectionParams.x) * rcp(rcpos.w) * 0.5 + 0.5;
+    if (any(ruv) < 0.0 || any(ruv) > 1.0) return;
+
+
+    float HeightStretch = (abs(wpos.y - _ReflectPlaneHeight));
+    float AngleStretch = (-_CameraDirection.y);
+    float ScreenStretch = saturate(abs(ruv.x * 2.0 - 1.0) - _Threshold);
+    ruv.x = ruv.x * 2.0 - 1.0;
+    ruv.x *= 1 + HeightStretch * AngleStretch * ScreenStretch * _Intensity;
+    ruv.x = saturate(ruv.x * 0.5 + 0.5);
+
+    // 计算反射后的索引
+    float2 ridx = ruv * _SSPRReflectionSize.xy;
+
+
+
+    //转化成int类型，给原子操作提供条件
+    //保留两位小数点
+    int wposY = int(wpos.y * 100);
+
+    // 使用整数的原子最小操作
+    InterlockedMin(_SSPRHeightBuffer[ridx], wposY);
+
+    //深度测试：如果反射后的像素深度大于当前像素深度，直接跳过下面的计算
+    if(wposY > _SSPRHeightBuffer[ridx]) return;
+
+
+    //解决边缘信息缺失的问题，对边缘像素进行一定程度的渐出
+    float mask = SdfCube(uv * 2.0 - 1.0);
+    mask = clamp(smoothstep(0, _EdgeFadeOutMaxValue, abs(mask)), 0.0, 1.0) * saturate(_WorldPosFadeOutHeight / (wpos.y + 0.01));
+
+    //如果当前像素深度更靠前，则更新现在的像素颜色
+    // _SSPRHeightBuffer[ridx] = wpos.y;
+    _SSPRReflectionTexture[ridx] = _CameraColorTexture.SampleLevel(sampler_CameraColorTexture, uv, 0) * mask;
+}
+
+#pragma kernel FillHole
+[numthreads(8,8,1)]
+void FillHole(uint3 id : SV_DispatchThreadID) {
+    // fill holes inside each 2*2
+    id.xy *= 2;
+
+    // cache read
+    half4 center = _SSPRReflectionTexture[id.xy + uint2(0, 0)];
+    half4 right = _SSPRReflectionTexture[id.xy + uint2(0, 1)];
+    half4 bottom = _SSPRReflectionTexture[id.xy + uint2(1, 0)];
+    half4 bottomRight = _SSPRReflectionTexture[id.xy + uint2(1, 1)];
+
+    // find best inside 2*2
+    half4 best = center;
+    best = right.a > best.a + 0.5 ? right : best;
+    best = bottom.a > best.a + 0.5 ? bottom : best;
+    best = bottomRight.a > best.a + 0.5 ? bottomRight : best;
+
+    // write better rgba
+    _SSPRReflectionTexture[id.xy + uint2(0, 0)] = best.a > center.a + 0.5 ? best : center;
+    _SSPRReflectionTexture[id.xy + uint2(0, 1)] = best.a > right.a + 0.5 ? best : right;
+    _SSPRReflectionTexture[id.xy + uint2(1, 0)] = best.a > bottom.a + 0.5 ? best : bottom;
+    _SSPRReflectionTexture[id.xy + uint2(1, 1)] = best.a > bottomRight.a + 0.5 ? best : bottomRight;
+}
