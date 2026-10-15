@@ -1,6 +1,5 @@
 using System;
 using UnityEngine.Rendering.Universal;
-using UnityEngine.SceneManagement;
 
 namespace UnityEngine.Experiemntal.Rendering.Universal
 {
@@ -73,33 +72,21 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
         // 创建渲染特征
         public override void Create()
         {
-            if (this.isActive)
+            Dispose(true);
+
+            if (m_SSPRSettings.m_SSPRShader == null)
             {
-                // DebugTool.Log("SSPR RenderFeature Create");
-                if (m_SSPRPass != null)
-                {
-                    m_SSPRPass.Dispose();
-                }
-
-                if (m_SSPRSettings.m_SSPRShader == null)
-                {
-                    m_SSPRSettings.m_SSPRShader = Shader.Find("AZUMI/RenderFeature/SSPR/GaussianBlur99");
-                }
-
-                if (m_SSPRSettings.m_ComputeShader == null)
-                {
-                    Debug.LogWarning("SSPR missing compute shader ");
-                    return;
-                }
-
-                m_SSPRPass = new SSPRPass(ref m_SSPRSettings);
-
+                m_SSPRSettings.m_SSPRShader = Shader.Find("AZUMI/RenderFeature/SSPR/GaussianBlur99");
             }
-            else//在这里设置一个Dispose，防止关闭feature内存泄漏
+
+            if (m_SSPRSettings.m_ComputeShader == null || m_SSPRSettings.m_SSPRShader == null)
             {
-                m_SSPRPass?.Dispose();
-                m_SSPRPass = null;
+                Debug.LogWarning("SSPR 缺少计算着色器或模糊着色器，无法创建渲染通道。", this);
+                return;
             }
+
+            // 激活状态仅控制入队，保证初始关闭的特征也能通过 SetActive 恢复。
+            m_SSPRPass = new SSPRPass(ref m_SSPRSettings);
         }
 
         // 添加渲染通道
@@ -128,10 +115,14 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
             m_SSPRPass = null;
         }
 
+        // 卸载及脚本重载时复用释放入口。
+        private void OnDisable() => Dispose(true);
+
 
         private bool RenderRequire(CameraData cameraData)
         {
-            return this.isActive/* && cameraData.camera != null && (cameraData.cameraType == CameraType.SceneView || cameraData.cameraType == CameraType.Game)*/;
+            return isActive && m_SSPRPass != null && cameraData.camera != null &&
+                (cameraData.cameraType == CameraType.SceneView || cameraData.cameraType == CameraType.Game);
         }
     }
 }

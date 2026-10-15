@@ -1,3 +1,4 @@
+using System;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 
@@ -35,8 +36,6 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
         private static readonly int m_SSPRHeightBufferID = Shader.PropertyToID("_SSPRHeightBuffer"); // 高度缓冲区属性ID
         private static readonly int m_CameraDirectionID = Shader.PropertyToID("_CameraDirection"); // 相机方向属性ID
         private static readonly int m_EdgeFadeOutMaxValueID = Shader.PropertyToID("_EdgeFadeOutMaxValue"); // 边缘渐出最大值属性ID
-        private static int[] m_TemporaryTextureDownID; // 临时降采样纹理属性ID
-        private static int[] m_TemporaryTextureUpID; // 临时升采样纹理属性ID
         private static int m_BlurRadiusID = Shader.PropertyToID("_BlurRadius");
 
         private const string m_SSPRReflectionTextureName = "_SSPRReflectionTexture"; // 反射纹理名称
@@ -51,8 +50,8 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
         private RTHandle m_SSPRHeightTexture; // 高度缓冲区纹理句柄
         private RTHandle m_SSPRReflectionTexture; // 反射纹理句柄
 
-        private RTHandle[] m_TemporaryTextureDown; // 反射纹理句柄
-        private RTHandle[] m_TemporaryTextureUp; // 反射纹理句柄
+        private RTHandle[] m_TemporaryTextureDown = Array.Empty<RTHandle>(); // 反射纹理句柄
+        private RTHandle[] m_TemporaryTextureUp = Array.Empty<RTHandle>(); // 反射纹理句柄
 
 
         // 构造函数初始化
@@ -70,26 +69,7 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
             renderPassEvent = m_SSPRSettings.evt;
 
 
-            //设置SSPR临时RT
-            m_SSPRHeightTexture = RTHandles.Alloc(m_SSPRHeightBufferID, name: m_SSPRHeightTextureName);
-            m_SSPRReflectionTexture = RTHandles.Alloc(m_SSPRReflectionTextureID, name: m_SSPRReflectionTextureName);
-
-            //设置blur shader临时RT
-            int size = m_SSPRSettings.m_Iteration;
-
-            m_TemporaryTextureDownID = new int[size];
-            m_TemporaryTextureUpID = new int[size];
-
-            m_TemporaryTextureDown = new RTHandle[size];
-            m_TemporaryTextureUp = new RTHandle[size];
-            for (int i = 0; i < size; i++)
-            {
-                m_TemporaryTextureDownID[i] = Shader.PropertyToID(m_TemporaryTextureDownName + i);
-                m_TemporaryTextureUpID[i] = Shader.PropertyToID(m_TemporaryTextureUpName + i);
-
-                m_TemporaryTextureDown[i] = RTHandles.Alloc(m_TemporaryTextureDownID[i], name: m_TemporaryTextureDownName + i);
-                m_TemporaryTextureUp[i] = RTHandles.Alloc(m_TemporaryTextureUpID[i], name: m_TemporaryTextureUpName + i);
-            }
+            // 纹理在实际渲染时按需创建，由当前通道独立持有。
         }
 
         // 设置目标和计算着色器
@@ -143,16 +123,22 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
 
 
             CommandBuffer cmd = CommandBufferPool.Get();
-            using (new ProfilingScope(cmd, m_ProfilingSampler))
+            try
             {
-                SetupSSPR(cmd, ref renderingData);
-                SetupBlur(cmd, ref renderingData);
-                SetupGlobal(cmd, ref renderingData);
-            }
+                using (new ProfilingScope(cmd, m_ProfilingSampler))
+                {
+                    SetupSSPR(cmd, ref renderingData);
+                    SetupBlur(cmd, ref renderingData);
+                    SetupGlobal(cmd, ref renderingData);
+                }
 
-            context.ExecuteCommandBuffer(cmd);
-            cmd.Clear();
-            CommandBufferPool.Release(cmd);
+                context.ExecuteCommandBuffer(cmd);
+            }
+            finally
+            {
+                cmd.Clear();
+                CommandBufferPool.Release(cmd);
+            }
         }
 
         // 设置计算着色器并分发线程组
@@ -162,11 +148,11 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
             // 分配RTHandle
             m_RenderTextureDescriptor = new RenderTextureDescriptor(GroupThreadX * GroupX, GroupThreadY * GroupY, RenderTextureFormat.BGRA32, 0, 0);
             m_RenderTextureDescriptor.enableRandomWrite = true; // 开启UAV随机读写
-            RenderingUtils.ReAllocateIfNeeded(ref m_SSPRReflectionTexture, m_RenderTextureDescriptor, FilterMode.Bilinear, TextureWrapMode.Clamp, name: m_SSPRReflectionTexture.name);
+            RenderingUtils.ReAllocateIfNeeded(ref m_SSPRReflectionTexture, m_RenderTextureDescriptor, FilterMode.Bilinear, TextureWrapMode.Clamp, name: m_SSPRReflectionTextureName);
 
             // 只要r channel
             m_RenderTextureDescriptor.colorFormat = RenderTextureFormat.RFloat;
-            RenderingUtils.ReAllocateIfNeeded(ref m_SSPRHeightTexture, m_RenderTextureDescriptor, FilterMode.Bilinear, TextureWrapMode.Clamp, name: m_SSPRHeightTexture.name);
+            RenderingUtils.ReAllocateIfNeeded(ref m_SSPRHeightTexture, m_RenderTextureDescriptor, FilterMode.Bilinear, TextureWrapMode.Clamp, name: m_SSPRHeightTextureName);
 
             // 设置ComputeShader属性
             m_SSPRKernelID = m_ComputeShader.FindKernel(m_SSPRKernelName);
@@ -193,8 +179,11 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
 
         private void SetupBlur(CommandBuffer cmd, ref RenderingData renderingData)
         {
+            // 同步运行时模糊层级，缩减时立即释放多余纹理。
+            ResizeBlurTextures(Mathf.Max(0, m_SSPRSettings.m_Iteration));
             if (m_SSPRSettings.m_Iteration < 1)
             {
+                cmd.SetGlobalTexture(m_SSPRReflectionBlurTextureID, Texture2D.blackTexture);
                 return;
             }
 
@@ -205,12 +194,12 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
 
             for (int i = 0; i < m_SSPRSettings.m_Iteration; i++)
             {
-                RenderingUtils.ReAllocateIfNeeded(ref m_TemporaryTextureUp[i], desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: m_TemporaryTextureUp[i].name);
+                RenderingUtils.ReAllocateIfNeeded(ref m_TemporaryTextureUp[i], desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: m_TemporaryTextureUpName + i);
 
                 desc.width = Mathf.Max(1, desc.width >> 1);
                 desc.height = Mathf.Max(1, desc.height >> 1);
 
-                RenderingUtils.ReAllocateIfNeeded(ref m_TemporaryTextureDown[i], desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: m_TemporaryTextureDown[i].name);
+                RenderingUtils.ReAllocateIfNeeded(ref m_TemporaryTextureDown[i], desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: m_TemporaryTextureDownName + i);
 
             }
 
@@ -228,7 +217,7 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
                 m_TemporaryTexture = m_TemporaryTextureUp[i];
             }
 
-            // Blitter.BlitCameraTexture(cmd, m_TemporaryTexture, m_SSPRReflectionTexture);
+            Blitter.BlitCameraTexture(cmd, m_TemporaryTexture, m_SSPRReflectionTexture);
             cmd.SetGlobalTexture(m_SSPRReflectionBlurTextureID, m_TemporaryTexture);
         }
 
@@ -239,31 +228,43 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
             cmd.SetGlobalVector(m_RTSizeID, new Vector4(m_RenderTextureDescriptor.width, m_RenderTextureDescriptor.height, 1.0f / (float)m_RenderTextureDescriptor.width, 1.0f / (float)m_RenderTextureDescriptor.height));
         }
 
-        // // 清理摄像机资源
-        // public override void OnCameraCleanup(CommandBuffer cmd)
-        // {
+        private void ResizeBlurTextures(int size)
+        {
+            if (m_TemporaryTextureDown.Length == size)
+            {
+                return;
+            }
 
-        // }
+            for (int i = size; i < m_TemporaryTextureDown.Length; i++)
+            {
+                ClearGlobalTexture(m_SSPRReflectionBlurTextureID, m_TemporaryTextureUp[i]);
+                m_TemporaryTextureDown[i]?.Release();
+                m_TemporaryTextureUp[i]?.Release();
+            }
+
+            Array.Resize(ref m_TemporaryTextureDown, size);
+            Array.Resize(ref m_TemporaryTextureUp, size);
+        }
+
+        // 仅清除仍指向当前通道资源的全局绑定，避免影响其他实例。
+        private static void ClearGlobalTexture(int propertyID, RTHandle handle)
+        {
+            if (handle != null && handle.rt != null && Shader.GetGlobalTexture(propertyID) == handle.rt)
+            {
+                Shader.SetGlobalTexture(propertyID, Texture2D.blackTexture);
+            }
+        }
 
         // 释放资源
         public void Dispose()
         {
-            // DebugTool.Log("SSPR Pass Dispose");
             CoreUtils.Destroy(m_BlurMaterial);
+            m_BlurMaterial = null;
 
-            foreach (var handle in m_TemporaryTextureDown)
-            {
-                handle.Release();
-            }
-            foreach (var handle in m_TemporaryTextureUp)
-            {
-                handle.Release();
-            }
-
-
-            m_SSPRReflectionTexture.Release();
-            m_SSPRHeightTexture.Release();
-
+            ClearGlobalTexture(m_SSPRReflectionTextureID, m_SSPRReflectionTexture);
+            ResizeBlurTextures(0);
+            m_SSPRReflectionTexture?.Release();
+            m_SSPRHeightTexture?.Release();
             m_SSPRReflectionTexture = null;
             m_SSPRHeightTexture = null;
 
