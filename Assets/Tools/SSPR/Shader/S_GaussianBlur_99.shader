@@ -21,7 +21,7 @@ Shader "AZUMI/RenderFeature/SSPR/GaussianBlur99"
         if (heightValue == 2147483647) return _BlurRadius;
 
         // 还原放大一百万倍的世界空间高度，物体离反射平面越高，半径越大。
-        float heightAbovePlane = max(0.0, heightValue * 1e-6 - _ReflectPlaneHeight) * 0.001;
+        float heightAbovePlane = max(0.0, heightValue * 1e-6 - _ReflectPlaneHeight);
         return _BlurRadius * (1.0 + heightAbovePlane * max(0.0, _BlurHeightScale));
     }
 

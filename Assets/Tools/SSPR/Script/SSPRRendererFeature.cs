@@ -72,8 +72,6 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
         // 创建渲染特征
         public override void Create()
         {
-            Dispose(true);
-
             if (m_SSPRSettings.m_SSPRShader == null)
             {
                 m_SSPRSettings.m_SSPRShader = Shader.Find("AZUMI/RenderFeature/SSPR/GaussianBlur99");
@@ -81,12 +79,16 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
 
             if (m_SSPRSettings.m_ComputeShader == null || m_SSPRSettings.m_SSPRShader == null)
             {
+                Dispose(true);
                 Debug.LogWarning("SSPR 缺少计算着色器或模糊着色器，无法创建渲染通道。", this);
                 return;
             }
 
-            // 激活状态仅控制入队，保证初始关闭的特征也能通过 SetActive 恢复。
-            m_SSPRPass = new SSPRPass(m_SSPRSettings);
+            // 调整数值时复用通道，避免清空正在显示的反射。
+            if (m_SSPRPass == null)
+                m_SSPRPass = new SSPRPass(m_SSPRSettings);
+            else
+                m_SSPRPass.UpdateSettings(m_SSPRSettings);
         }
 
         // 添加渲染通道
@@ -103,7 +105,6 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
         {
             if (RenderRequire(renderingData.cameraData))
             {
-                m_SSPRPass.ConfigureInput(ScriptableRenderPassInput.Color);
                 m_SSPRPass.SetTarget(renderingData);
             }
         }

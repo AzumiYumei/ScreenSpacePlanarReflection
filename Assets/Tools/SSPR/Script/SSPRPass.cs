@@ -8,9 +8,9 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
     public class SSPRPass : ScriptableRenderPass
     {
         // 成员变量声明
-        private readonly SSPRSettings m_SSPRSettings; // 存储SSPR设置
+        private SSPRSettings m_SSPRSettings; // 存储SSPR设置
 
-        private readonly ComputeShader m_ComputeShader; // 计算着色器引用
+        private ComputeShader m_ComputeShader; // 计算着色器引用
         private Material m_BlurMaterial;
 
         private const int GroupThreadX = 8;
@@ -55,15 +55,23 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
         // 构造函数初始化
         public SSPRPass(SSPRSettings settings)
         {
-            //获取RenderFeature的数据
+            UpdateSettings(settings);
+            // 在通道入队前声明输入，让渲染器提前准备颜色与深度。
+            ConfigureInput(ScriptableRenderPassInput.Color | ScriptableRenderPassInput.Depth);
+        }
+
+        public void UpdateSettings(SSPRSettings settings)
+        {
+            // 编辑器反序列化可能替换设置对象，不能只持有旧引用。
             m_SSPRSettings = settings;
-
-            //设置computeShader与blurShader
-            m_ComputeShader = m_SSPRSettings.m_ComputeShader;
-            m_BlurMaterial = CoreUtils.CreateEngineMaterial(m_SSPRSettings.m_SSPRShader);
-
-            //设置渲染顺序
-            renderPassEvent = m_SSPRSettings.evt;
+            renderPassEvent = settings.evt;
+            m_ComputeShader = settings.m_ComputeShader;
+            // 只有模糊着色器变化时才重建材质，纹理继续复用。
+            if (m_BlurMaterial == null || m_BlurMaterial.shader != settings.m_SSPRShader)
+            {
+                CoreUtils.Destroy(m_BlurMaterial);
+                m_BlurMaterial = CoreUtils.CreateEngineMaterial(settings.m_SSPRShader);
+            }
         }
 
         // 设置目标和计算着色器
