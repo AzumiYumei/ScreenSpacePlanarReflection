@@ -1,9 +1,7 @@
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
-
 RWTexture2D<half4> _SSPRReflectionTexture;
 RWTexture2D<int>  _SSPRHeightBuffer;
-// RWTexture2D<half>  _SSPRHeightBuffer;
 
 Texture2D<float4> _CameraColorTexture;
 Texture2D<float4> _CameraDepthTexture;
@@ -20,30 +18,10 @@ float _Threshold;
 float _Intensity;
 
 float _WorldPosFadeOutHeight;
+float _EnableWorldPosFadeOut;
 
 //计算像素到边缘的距离
 float SdfCube(float2 pos) {
-    ///原理：
-    /// 1. 获取距离边缘xy的距离
-    /// 2. 返回最近距离
-    // float x = pos.x;
-    // float y = pos.y;
-    // float edgeLeft = -1.0;
-    // float edgeRight = 1.0;
-    // float edgeTop = 1.0;
-    // float edgeButton = -1.0;
-
-    // float disLeft =     abs(edgeLeft - x    );
-    // float disRight =    abs(edgeRight - x   );
-    // float disTop =      abs(edgeTop - y     );
-    // float disBottom =   abs(edgeButton - y  );
-
-    // float minDisH = min(disLeft, disRight);
-    // float minDisV = min(edgeTop, edgeButton);
-
-    // return min(minDisH, minDisV);
-
-    //获取距离边缘xy的距离
     float2 dis = float2(1, 1) - abs(pos);
     //返回最近距离
     return min(dis.x, dis.y);
@@ -81,7 +59,6 @@ void SSPR(uint3 id : SV_DispatchThreadID) {
     float2 ruv = float2(rcpos.x, rcpos.y * _ProjectionParams.x) * rcp(rcpos.w) * 0.5 + 0.5;
     if (any(ruv) < 0.0 || any(ruv) > 1.0) return;
 
-
     float HeightStretch = (abs(wpos.y - _ReflectPlaneHeight));
     float AngleStretch = (-_CameraDirection.y);
     float ScreenStretch = saturate(abs(ruv.x * 2.0 - 1.0) - _Threshold);
@@ -91,7 +68,6 @@ void SSPR(uint3 id : SV_DispatchThreadID) {
 
     // 计算反射后的索引
     float2 ridx = ruv * _SSPRReflectionSize.xy;
-
 
     //转化成int类型，给原子操作提供条件
     //保留六位小数点
@@ -103,10 +79,10 @@ void SSPR(uint3 id : SV_DispatchThreadID) {
     //深度测试：如果反射后的像素深度大于当前像素深度，直接跳过下面的计算
     if(wposY > _SSPRHeightBuffer[ridx]) return;
 
-
     //解决边缘信息缺失的问题，对边缘像素进行一定程度的渐出
     float mask = SdfCube(uv * 2.0 - 1.0);
-    mask = clamp(smoothstep(0, _EdgeFadeOutMaxValue, abs(mask)), 0.0, 1.0) * saturate(_WorldPosFadeOutHeight / max(wpos.y , 0.01));
+    float heightMask = lerp(1.0, saturate(_WorldPosFadeOutHeight / max(wpos.y , 0.01)), _EnableWorldPosFadeOut);
+    mask = clamp(smoothstep(0, _EdgeFadeOutMaxValue, abs(mask)), 0.0, 1.0) * heightMask;
 
     //如果当前像素深度更靠前，则更新现在的像素颜色
     // 保留原子操作写入的放大整数，供 Blur 还原世界空间高度。
@@ -117,16 +93,16 @@ void SSPR(uint3 id : SV_DispatchThreadID) {
 #pragma kernel FillHole
 [numthreads(8,8,1)]
 void FillHole(uint3 id : SV_DispatchThreadID) {
-    // fill holes inside each 2*2
+    // 在每个 2×2 区块内补洞。
     id.xy *= 2;
 
-    // cache read
+    // 缓存区块颜色。
     half4 center = _SSPRReflectionTexture[id.xy + uint2(0, 0)];
     half4 right = _SSPRReflectionTexture[id.xy + uint2(0, 1)];
     half4 bottom = _SSPRReflectionTexture[id.xy + uint2(1, 0)];
     half4 bottomRight = _SSPRReflectionTexture[id.xy + uint2(1, 1)];
 
-    // find best inside 2*2
+    // 选择透明度最高的有效像素。
     half4 best = center;
     uint2 bestOffset = uint2(0, 0);
     bestOffset = right.a > best.a + 0.5 ? uint2(0, 1) : bestOffset;
@@ -143,7 +119,7 @@ void FillHole(uint3 id : SV_DispatchThreadID) {
     if (best.a > bottom.a + 0.5) _SSPRHeightBuffer[id.xy + uint2(1, 0)] = bestHeight;
     if (best.a > bottomRight.a + 0.5) _SSPRHeightBuffer[id.xy + uint2(1, 1)] = bestHeight;
 
-    // write better rgba
+    // 将选中的颜色写入空洞。
     _SSPRReflectionTexture[id.xy + uint2(0, 0)] = best.a > center.a + 0.5 ? best : center;
     _SSPRReflectionTexture[id.xy + uint2(0, 1)] = best.a > right.a + 0.5 ? best : right;
     _SSPRReflectionTexture[id.xy + uint2(1, 0)] = best.a > bottom.a + 0.5 ? best : bottom;

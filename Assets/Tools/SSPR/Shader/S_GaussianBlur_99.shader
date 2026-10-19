@@ -2,8 +2,7 @@ Shader "AZUMI/RenderFeature/SSPR/GaussianBlur99"
 {
     HLSLINCLUDE
     #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
-    // The Blit.hlsl file provides the vertex shader (Vert),
-    // the input structure (Attributes), and the output structure (Varyings)
+    // 复用全屏拷贝的顶点着色器和输入输出结构。
     #include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/Blit.hlsl"
 
     float _BlurRadius;
@@ -22,7 +21,7 @@ Shader "AZUMI/RenderFeature/SSPR/GaussianBlur99"
         if (heightValue == 2147483647) return _BlurRadius;
 
         // 还原放大一百万倍的世界空间高度，物体离反射平面越高，半径越大。
-        float heightAbovePlane = max(0.0, heightValue * 1e-6 - _ReflectPlaneHeight);
+        float heightAbovePlane = max(0.0, heightValue * 1e-6 - _ReflectPlaneHeight) * 0.001;
         return _BlurRadius * (1.0 + heightAbovePlane * max(0.0, _BlurHeightScale));
     }
 
@@ -32,7 +31,7 @@ Shader "AZUMI/RenderFeature/SSPR/GaussianBlur99"
         float2 uv = UnityStereoTransformScreenSpaceTex(input.texcoord);
         float texelSize = GetBlurRadius(uv) * _BlitTexture_TexelSize.x;
 
-        // 9 - tap gaussian blur on the downsampled source
+        // 对降采样纹理进行九点高斯模糊。
         float4 c0 = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, uv - float2(texelSize * 4.0, 0.0));
         float4 c1 = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, uv - float2(texelSize * 3.0, 0.0));
         float4 c2 = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, uv - float2(texelSize * 2.0, 0.0));
@@ -55,7 +54,7 @@ Shader "AZUMI/RenderFeature/SSPR/GaussianBlur99"
         float2 uv = UnityStereoTransformScreenSpaceTex(input.texcoord);
         float texelSize = GetBlurRadius(uv) * _BlitTexture_TexelSize.y;
 
-        // 9 - tap gaussian blur on the downsampled source
+        // 对降采样纹理进行九点高斯模糊。
         float4 c0 = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, uv - float2(0.0, texelSize * 4.0));
         float4 c1 = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, uv - float2(0.0, texelSize * 3.0));
         float4 c2 = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, uv - float2(0.0, texelSize * 2.0));

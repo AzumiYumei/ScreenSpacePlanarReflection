@@ -1,4 +1,4 @@
-Shader "AZUMI/RenderFeature/SSPR/Example/SSPRReflector" 
+Shader "AZUMI/RenderFeature/SSPR/Example/SSPRReflector"
 {
     HLSLINCLUDE
         #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
@@ -11,7 +11,6 @@ Shader "AZUMI/RenderFeature/SSPR/Example/SSPRReflector"
             float4 positionCS : SV_POSITION; // 剪裁空间位置
             float4 positionNDC : TEXCOORD0; // 归一化设备坐标
         };
-
 
         TEXTURE2D(_SSPRReflectionTexture);SAMPLER(sampler_SSPRReflectionTexture);
 
@@ -30,12 +29,11 @@ Shader "AZUMI/RenderFeature/SSPR/Example/SSPRReflector"
             half4 finalCol = SAMPLE_TEXTURE2D(_SSPRReflectionTexture, sampler_SSPRReflectionTexture, suv); // 采样反射纹理
             return half4(finalCol.xyz, 1.0); // 返回最终颜色
         }
-    
+
     ENDHLSL
 
-
     SubShader {
-        
+
         Tags {
             "RenderPipeline" = "UniversalPipeline"
             "Queue" = "Geometry"

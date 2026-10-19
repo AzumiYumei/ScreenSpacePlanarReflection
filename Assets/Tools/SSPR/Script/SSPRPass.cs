@@ -8,58 +8,55 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
     public class SSPRPass : ScriptableRenderPass
     {
         // 成员变量声明
-        private SSPRSettings m_SSPRSettings; // 存储SSPR设置
+        private readonly SSPRSettings m_SSPRSettings; // 存储SSPR设置
 
-        private ComputeShader m_ComputeShader; // 计算着色器引用
+        private readonly ComputeShader m_ComputeShader; // 计算着色器引用
         private Material m_BlurMaterial;
 
-        private int GroupThreadX = 8;
-        private int GroupThreadY = 8;
+        private const int GroupThreadX = 8;
+        private const int GroupThreadY = 8;
         private int GroupX;
         private int GroupY;
         private int m_SSPRKernelID; // SSPR计算着色器内核ID
         private int m_FillHoleKernelID; // FillHole计算着色器内核ID
-        private string m_SSPRKernelName = "SSPR"; // SSPR内核名称
-        private string m_FillHoleKernelName = "FillHole"; // FillHole内核名称
+        private const string m_SSPRKernelName = "SSPR"; // SSPR内核名称
+        private const string m_FillHoleKernelName = "FillHole"; // FillHole内核名称
 
-        private ProfilingSampler m_ProfilingSampler = new ProfilingSampler("SSPR"); // 性能分析采样器
+        private readonly ProfilingSampler m_ProfilingSampler = new ProfilingSampler("SSPR"); // 性能分析采样器
         private static readonly int m_ReflectPlaneHeightID = Shader.PropertyToID("_ReflectPlaneHeight"); // 反射平面高度属性ID
-        private static readonly int m__WorldPosFadeOutHeightID = Shader.PropertyToID("_WorldPosFadeOutHeight");
+        private static readonly int m_WorldPosFadeOutHeightID = Shader.PropertyToID("_WorldPosFadeOutHeight");
+        private static readonly int m_EnableWorldPosFadeOutID = Shader.PropertyToID("_EnableWorldPosFadeOut");
         private static readonly int m_StretchThresholdID = Shader.PropertyToID("_Threshold");
         private static readonly int m_StretchIntensityID = Shader.PropertyToID("_Intensity");
         private static readonly int m_RTSizeID = Shader.PropertyToID("_SSPRReflectionSize"); // 反射纹理尺寸属性ID
-        private static readonly int m_SSPRReflectionTextureID = Shader.PropertyToID("_SSPRReflectionTexture"); // 反射纹理属性ID
-        private static readonly int m_SSPRReflectionBlurTextureID = Shader.PropertyToID("_SSPRReflectionBlurTexture"); // 反射纹理属性ID
-        private static readonly int m_SSPRReflectionBlurmIteration = Shader.PropertyToID("_SSPRReflectionBlurIteration"); // 反射纹理属性ID
+        private static readonly int m_SSPRReflectionTextureID = Shader.PropertyToID("_SSPRReflectionTexture");
         private static readonly int m_CameraColorTextureID = Shader.PropertyToID("_CameraColorTexture"); // 相机颜色纹理属性ID
         private static readonly int m_CameraDepthTextureID = Shader.PropertyToID("_CameraDepthTexture"); // 相机深度纹理属性ID
         private static readonly int m_SSPRHeightBufferID = Shader.PropertyToID("_SSPRHeightBuffer"); // 高度缓冲区属性ID
         private static readonly int m_CameraDirectionID = Shader.PropertyToID("_CameraDirection"); // 相机方向属性ID
         private static readonly int m_EdgeFadeOutMaxValueID = Shader.PropertyToID("_EdgeFadeOutMaxValue"); // 边缘渐出最大值属性ID
-        private static int m_BlurRadiusID = Shader.PropertyToID("_BlurRadius");
+        private static readonly int m_BlurRadiusID = Shader.PropertyToID("_BlurRadius");
+        private static readonly int m_BlurHeightScaleID = Shader.PropertyToID("_BlurHeightScale");
 
         private const string m_SSPRReflectionTextureName = "_SSPRReflectionTexture"; // 反射纹理名称
-        private const string m_SSPRHeightTextureName = "_SSPRHeightBufferTexture"; // 高度缓冲区纹理名称
-        private const string m_TemporaryTextureDownName = "_SSPRDownRTexture"; // 高度缓冲区纹理名称
-        private const string m_TemporaryTextureUpName = "_SSPRUpRTexture"; // 高度缓冲区纹理名称
-
+        private const string m_SSPRHeightTextureName = "_SSPRHeightBufferTexture";
+        private const string m_TemporaryTextureDownName = "_SSPRDownRTexture";
+        private const string m_TemporaryTextureUpName = "_SSPRUpRTexture";
 
         private RenderTextureDescriptor m_RenderTextureDescriptor; // 渲染纹理描述符
         private RTHandle m_CameraColorTexture; // 相机颜色纹理句柄
         private RTHandle m_CameraDepthTexture; // 相机深度纹理句柄
         private RTHandle m_SSPRHeightTexture; // 高度缓冲区纹理句柄
-        private RTHandle m_SSPRReflectionTexture; // 反射纹理句柄
+        private RTHandle m_SSPRReflectionTexture;
 
-        private RTHandle[] m_TemporaryTextureDown = Array.Empty<RTHandle>(); // 反射纹理句柄
-        private RTHandle[] m_TemporaryTextureUp = Array.Empty<RTHandle>(); // 反射纹理句柄
-
+        private RTHandle[] m_TemporaryTextureDown = Array.Empty<RTHandle>();
+        private RTHandle[] m_TemporaryTextureUp = Array.Empty<RTHandle>();
 
         // 构造函数初始化
-        public SSPRPass(ref SSPRSettings sSPRSettings)
+        public SSPRPass(SSPRSettings settings)
         {
-            // DebugTool.Log("SSPR Pass SSPRPass");
             //获取RenderFeature的数据
-            m_SSPRSettings = sSPRSettings;
+            m_SSPRSettings = settings;
 
             //设置computeShader与blurShader
             m_ComputeShader = m_SSPRSettings.m_ComputeShader;
@@ -67,42 +64,25 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
 
             //设置渲染顺序
             renderPassEvent = m_SSPRSettings.evt;
-
-
-            // 纹理在实际渲染时按需创建，由当前通道独立持有。
         }
 
         // 设置目标和计算着色器
         public void SetTarget(RenderingData renderingData)
         {
-            // DebugTool.Log("SSPR Pass SetTarget");
             //获取RenderFeature传递的相机颜色和深度纹理句柄
             ScriptableRenderer renderer = renderingData.cameraData.renderer;
             m_CameraColorTexture = renderer.cameraColorTargetHandle;
             m_CameraDepthTexture = renderer.cameraDepthTargetHandle;
 
-            //如果在构造函数中计算这个，会导致计算出错，可能是Screen获取宽高在第一帧出错的问题
-            //设置compute shader线程参数
-            GroupThreadX = 8;
-            GroupThreadY = 8;
-            //计算Compute Shader所需的线程数量
+            // 在获取相机目标后计算线程组数量。
             float aspect = (float)Screen.height / (float)Screen.width; // 计算宽高比
             GroupY = Mathf.RoundToInt(Mathf.Max(2, (float)m_SSPRSettings.RTSize / (float)GroupThreadY));
             GroupX = Mathf.RoundToInt(Mathf.Max(2, (float)GroupY / aspect));
         }
 
-        // // 在摄像机设置时配置目标和清除
-        // public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
-        // {
-        //     // DebugTool.Log("SSPR Pass OnCameraSetup");
-        //     ConfigureTarget(renderingData.cameraData.renderer.cameraColorTargetHandle); // 配置目标为相机颜色纹理
-        //     ConfigureClear(ClearFlag.None, Color.white); // 不清除任何内容，背景为白色
-        // }
-
         // 执行计算着色器
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
-            // DebugTool.Log("SSPR Pass Execute");
             if (!RenderRequire(renderingData.cameraData))
             {
                 return;
@@ -120,16 +100,14 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
                 return;
             }
 
-
-
             CommandBuffer cmd = CommandBufferPool.Get();
             try
             {
                 using (new ProfilingScope(cmd, m_ProfilingSampler))
                 {
                     SetupSSPR(cmd, ref renderingData);
-                    SetupBlur(cmd, ref renderingData);
-                    SetupGlobal(cmd, ref renderingData);
+                    SetupBlur(cmd);
+                    SetupGlobal(cmd);
                 }
 
                 context.ExecuteCommandBuffer(cmd);
@@ -144,20 +122,20 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
         // 设置计算着色器并分发线程组
         private void SetupSSPR(CommandBuffer cmd, ref RenderingData renderingData)
         {
-            // DebugTool.Log("SSPR Pass SetupSSPR");
             // 分配RTHandle
             m_RenderTextureDescriptor = new RenderTextureDescriptor(GroupThreadX * GroupX, GroupThreadY * GroupY, RenderTextureFormat.ARGB32, 0, 0);
             m_RenderTextureDescriptor.enableRandomWrite = true; // 开启UAV随机读写
             RenderingUtils.ReAllocateIfNeeded(ref m_SSPRReflectionTexture, m_RenderTextureDescriptor, FilterMode.Bilinear, TextureWrapMode.Clamp, name: m_SSPRReflectionTextureName);
 
-            // 只要r channel
+            // 高度缓冲只需要一个整数通道。
             m_RenderTextureDescriptor.colorFormat = RenderTextureFormat.RInt;
             RenderingUtils.ReAllocateIfNeeded(ref m_SSPRHeightTexture, m_RenderTextureDescriptor, FilterMode.Point, TextureWrapMode.Clamp, name: m_SSPRHeightTextureName);
 
             // 设置ComputeShader属性
             m_SSPRKernelID = m_ComputeShader.FindKernel(m_SSPRKernelName);
             m_ComputeShader.SetFloat(m_ReflectPlaneHeightID, m_SSPRSettings.ReflectHeight);
-            m_ComputeShader.SetFloat(m__WorldPosFadeOutHeightID, m_SSPRSettings.m_WorldPosFadeOutHeight);
+            m_ComputeShader.SetFloat(m_WorldPosFadeOutHeightID, m_SSPRSettings.m_WorldPosFadeOutHeight);
+            m_ComputeShader.SetFloat(m_EnableWorldPosFadeOutID, m_SSPRSettings.m_EnableWorldPosFadeOut ? 1.0f : 0.0f);
             m_ComputeShader.SetVector(m_RTSizeID, new Vector4(m_RenderTextureDescriptor.width, m_RenderTextureDescriptor.height, 1.0f / (float)m_RenderTextureDescriptor.width, 1.0f / (float)m_RenderTextureDescriptor.height));
             m_ComputeShader.SetTexture(m_SSPRKernelID, m_SSPRReflectionTextureID, m_SSPRReflectionTexture);
             m_ComputeShader.SetTexture(m_SSPRKernelID, m_SSPRHeightBufferID, m_SSPRHeightTexture);
@@ -183,19 +161,18 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
             cmd.DispatchCompute(m_ComputeShader, m_FillHoleKernelID, GroupX / 2, GroupY / 2, 1);
         }
 
-        private void SetupBlur(CommandBuffer cmd, ref RenderingData renderingData)
+        private void SetupBlur(CommandBuffer cmd)
         {
             // 同步运行时模糊层级，缩减时立即释放多余纹理。
             ResizeBlurTextures(Mathf.Max(0, m_SSPRSettings.m_Iteration));
             if (m_SSPRSettings.m_Iteration < 1)
             {
-                cmd.SetGlobalTexture(m_SSPRReflectionBlurTextureID, Texture2D.blackTexture);
                 return;
             }
 
             //开始模糊
             m_BlurMaterial.SetFloat(m_BlurRadiusID, m_SSPRSettings.m_BlurRadius);
-            m_BlurMaterial.SetFloat("_BlurHeightScale", m_SSPRSettings.m_BlurHeightScale);
+            m_BlurMaterial.SetFloat(m_BlurHeightScaleID, m_SSPRSettings.m_BlurHeightScale);
             // 两次模糊共用原始高度图，避免高度随颜色一起被模糊。
             m_BlurMaterial.SetTexture(m_SSPRHeightBufferID, m_SSPRHeightTexture.rt);
             m_BlurMaterial.SetFloat(m_ReflectPlaneHeightID, m_SSPRSettings.ReflectHeight);
@@ -210,32 +187,28 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
                 desc.height = Mathf.Max(1, desc.height >> 1);
 
                 RenderingUtils.ReAllocateIfNeeded(ref m_TemporaryTextureDown[i], desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: m_TemporaryTextureDownName + i);
-
             }
 
             //创建RTHandle作为临时指针
-            var m_TemporaryTexture = m_SSPRReflectionTexture;
+            var temporaryTexture = m_SSPRReflectionTexture;
             for (int i = 0; i < m_SSPRSettings.m_Iteration; i++)
             {
-                Blitter.BlitCameraTexture(cmd, m_TemporaryTexture, m_TemporaryTextureDown[i], m_BlurMaterial, 0);
-                m_TemporaryTexture = m_TemporaryTextureDown[i];
+                Blitter.BlitCameraTexture(cmd, temporaryTexture, m_TemporaryTextureDown[i], m_BlurMaterial, 0);
+                temporaryTexture = m_TemporaryTextureDown[i];
             }
 
             for (int i = m_SSPRSettings.m_Iteration - 1; i >= 0; i--)
             {
-                Blitter.BlitCameraTexture(cmd, m_TemporaryTexture, m_TemporaryTextureUp[i], m_BlurMaterial, 1);
-                m_TemporaryTexture = m_TemporaryTextureUp[i];
+                Blitter.BlitCameraTexture(cmd, temporaryTexture, m_TemporaryTextureUp[i], m_BlurMaterial, 1);
+                temporaryTexture = m_TemporaryTextureUp[i];
             }
 
-            Blitter.BlitCameraTexture(cmd, m_TemporaryTexture, m_SSPRReflectionTexture);
-            cmd.SetGlobalTexture(m_SSPRReflectionBlurTextureID, m_TemporaryTexture);
+            Blitter.BlitCameraTexture(cmd, temporaryTexture, m_SSPRReflectionTexture);
         }
 
-        private void SetupGlobal(CommandBuffer cmd, ref RenderingData renderingData)
+        private void SetupGlobal(CommandBuffer cmd)
         {
-            cmd.SetGlobalFloat(m_SSPRReflectionBlurmIteration, m_SSPRSettings.m_Iteration);
             cmd.SetGlobalTexture(m_SSPRReflectionTextureID, m_SSPRReflectionTexture);
-            cmd.SetGlobalVector(m_RTSizeID, new Vector4(m_RenderTextureDescriptor.width, m_RenderTextureDescriptor.height, 1.0f / (float)m_RenderTextureDescriptor.width, 1.0f / (float)m_RenderTextureDescriptor.height));
         }
 
         private void ResizeBlurTextures(int size)
@@ -247,7 +220,6 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
 
             for (int i = size; i < m_TemporaryTextureDown.Length; i++)
             {
-                ClearGlobalTexture(m_SSPRReflectionBlurTextureID, m_TemporaryTextureUp[i]);
                 m_TemporaryTextureDown[i]?.Release();
                 m_TemporaryTextureUp[i]?.Release();
             }
@@ -281,7 +253,6 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
             m_CameraColorTexture = null;
             m_CameraDepthTexture = null;
         }
-
 
         private bool RenderRequire(CameraData cameraData)
         {

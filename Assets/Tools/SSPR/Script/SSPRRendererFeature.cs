@@ -4,14 +4,11 @@ using UnityEngine.Rendering.Universal;
 namespace UnityEngine.Experiemntal.Rendering.Universal
 {
     /// <summary>
-    /// 屏幕空间平面反射后处理参数结构体
+    /// 屏幕空间平面反射参数
     /// </summary>
     [Serializable]
     public class SSPRSettings
     {
-        // [SerializeField]
-        // [Tooltip("是否在编辑器中启用")]
-        // internal bool EditorActive = false; // 是否在编辑器中启用
         [SerializeField]
         [Tooltip("设置渲染顺序")]
         internal RenderPassEvent evt = RenderPassEvent.AfterRenderingOpaques;
@@ -27,10 +24,11 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
         [Range(0.0f, 5.0f)]
         internal float m_EdgeFadeOutMaxValue = 0.6f; // 边缘渐出最大值
         [SerializeField]
+        internal bool m_EnableWorldPosFadeOut = true; // 是否启用世界空间渐出效果
+        [SerializeField]
         [Tooltip("SSPR根据世界空间Y轴高度的阈值来控制渐出效果")]
         [Range(0.0f, 4.0f)]
         internal float m_WorldPosFadeOutHeight = 1.0f; // 边缘渐出最大值
-
 
         [Header("UV拉伸")]
         [SerializeField]
@@ -41,7 +39,6 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
         [Tooltip("SSPR屏幕边缘拉伸强度")]
         [Range(0.0f, 1.0f)]
         internal float m_StretchIntensity = 1.0f;
-
 
         [Header("模糊")]
         [SerializeField]
@@ -89,7 +86,7 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
             }
 
             // 激活状态仅控制入队，保证初始关闭的特征也能通过 SetActive 恢复。
-            m_SSPRPass = new SSPRPass(ref m_SSPRSettings);
+            m_SSPRPass = new SSPRPass(m_SSPRSettings);
         }
 
         // 添加渲染通道
@@ -120,7 +117,6 @@ namespace UnityEngine.Experiemntal.Rendering.Universal
 
         // 卸载及脚本重载时复用释放入口。
         private void OnDisable() => Dispose(true);
-
 
         private bool RenderRequire(CameraData cameraData)
         {

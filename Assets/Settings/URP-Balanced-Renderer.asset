@@ -11,7 +11,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: de640fe3d0db1804a85f9fc8f5cadab6, type: 3}
   m_Name: URP-Balanced-Renderer
-  m_EditorClassIdentifier: 
+  m_EditorClassIdentifier:
   debugShaders:
     debugReplacementPS: {fileID: 4800000, guid: cf852408f2e174538bcd9b7fda1c5ae7,
       type: 3}
@@ -78,18 +78,19 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: d597fb73c95f6e740a061fefb07a8780, type: 3}
   m_Name: SSPRRendererFeature
-  m_EditorClassIdentifier: 
+  m_EditorClassIdentifier:
   m_Active: 1
   m_SSPRSettings:
     evt: 500
     RTSize: 1024
-    ReflectHeight: 0.02
-    m_EdgeFadeOutMaxValue: 0.3
-    m_WorldPosFadeOutHeight: 0.6
+    ReflectHeight: 0.01
+    m_EdgeFadeOutMaxValue: 0.1
+    m_EnableWorldPosFadeOut: 1
+    m_WorldPosFadeOutHeight: 1
     m_StretchThreshold: 1
     m_StretchIntensity: 1
-    m_Iteration: 2
-    m_BlurRadius: 0.5
-    m_BlurHeightScale: 5
+    m_Iteration: 1
+    m_BlurRadius: 1
+    m_BlurHeightScale: 1
     m_ComputeShader: {fileID: 7200000, guid: a87095823e413474eb97cd9af4409721, type: 3}
     m_SSPRShader: {fileID: 4800000, guid: bb4c90aed89b0184081c63a6ae0ffa37, type: 3}
